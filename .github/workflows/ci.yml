@@ -29,5 +29,5 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: ruff check .
       - run: ruff format --check .
-      - run: mypy
+      - run: mypy --python-version "${{ matrix.python-version }}"
       - run: python -m pytest --cov=holdout_first --cov-branch --cov-report=term-missing --cov-fail-under=100 -q
