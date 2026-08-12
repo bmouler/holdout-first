@@ -1,0 +1,59 @@
+[project]
+name = "holdout-first"
+version = "0.1.0"
+description = "Validation harness that fits on a small slice and demands survival on the large held-out remainder."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Bert Mouler" }]
+keywords = [
+    "backtesting",
+    "cross-validation",
+    "look-ahead-bias",
+    "out-of-sample",
+    "overfitting",
+    "quantitative-finance",
+    "validation",
+    "walk-forward",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Typing :: Typed",
+]
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.5"]
+
+[project.urls]
+Homepage = "https://github.com/bmouler/holdout-first"
+Repository = "https://github.com/bmouler/holdout-first"
+
+[project.scripts]
+holdout-first = "holdout_first.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/holdout_first"]
