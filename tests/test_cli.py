@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import json
+import runpy
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
+from holdout_first import cli
 from holdout_first.causality import LookaheadError
 from holdout_first.cli import build_parser, main, run_demo
+
+
+def test_typed_package_marker_is_shipped() -> None:
+    marker = Path(__file__).parents[1] / "src" / "holdout_first" / "py.typed"
+    assert marker.is_file()
 
 
 def test_demo_exits_zero_on_the_documented_seed(capsys: pytest.CaptureFixture[str]) -> None:
@@ -87,3 +97,47 @@ def test_unknown_subcommand_is_rejected() -> None:
 def test_run_demo_rejects_a_non_integer_seed() -> None:
     with pytest.raises(TypeError, match="seed must be an int"):
         run_demo("11")  # type: ignore[arg-type]
+
+
+def test_demo_failure_returns_one_and_explains_missing_lookahead_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    honest, overfitted, _ = run_demo(11)
+    monkeypatch.setattr(cli, "run_demo", lambda seed: (honest, overfitted, None))
+
+    assert main(["demo", "--seed", "11"]) == 1
+    output = capsys.readouterr().out
+    assert "no LookaheadError was raised" in output
+    assert "outcome: the demo did not behave as documented." in output
+
+
+def test_cli_module_execution_exits_with_demo_result(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delitem(sys.modules, "holdout_first.cli")
+    monkeypatch.setattr(sys, "argv", ["holdout-first", "demo", "--seed", "11"])
+    with pytest.raises(SystemExit) as caught:
+        runpy.run_module("holdout_first.cli", run_name="__main__")
+    assert caught.value.code == 0
+    assert "outcome: the parsimonious rule survived" in capsys.readouterr().out
+
+
+def test_installed_cli_runs_seed_eleven_from_outside_the_repository(tmp_path: Path) -> None:
+    executable = Path(sys.executable).with_name("holdout-first")
+    result = subprocess.run(
+        [str(executable), "demo", "--seed", "11", "--json"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["seed"] == 11
+    assert payload["demo_succeeded"] is True
+    assert payload["honest"]["survived"] is True
+    assert payload["overfitted"]["survived"] is False
+    assert payload["peeking"]["error"] == "LookaheadError"

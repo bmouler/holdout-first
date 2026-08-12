@@ -178,6 +178,18 @@ def test_report_serialises_to_json(panel: dict[str, npt.NDArray[np.float64]]) ->
     assert [rule["name"] for rule in payload["rules"]] == list(RULE_NAMES)
 
 
+def test_report_serialises_undefined_metrics_as_json_null() -> None:
+    class Flat:
+        n_parameters = 0
+
+        def positions(self, prices: npt.NDArray[np.float64]) -> Sequence[float]:
+            return [0.0] * prices.size
+
+    prices = np.cumprod(np.full(100, 1.001)) * 100.0
+    payload = run(Flat(), {"flat": prices}, n_periods=1, gap=0).to_dict()
+    assert payload["cells"][0]["train"]["hit_rate"] is None
+
+
 def test_format_text_states_the_verdict_and_lists_every_rule(
     panel: dict[str, npt.NDArray[np.float64]],
 ) -> None:
@@ -228,6 +240,16 @@ def test_panel_prices_must_be_finite() -> None:
     prices[7] = np.nan
     with pytest.raises(ValueError, match="finite"):
         evaluate(MomentumRule(), {"a": prices})
+
+
+def test_panel_instrument_names_must_be_strings() -> None:
+    with pytest.raises(TypeError, match="keys must be str"):
+        evaluate(MomentumRule(), {7: np.full(200, 100.0)})  # type: ignore[dict-item]
+
+
+def test_panel_prices_must_be_one_dimensional() -> None:
+    with pytest.raises(ValueError, match="one-dimensional"):
+        evaluate(MomentumRule(), {"a": np.full((200, 1), 100.0)})
 
 
 def test_strategy_must_declare_an_integer_parameter_count(

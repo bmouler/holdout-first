@@ -182,6 +182,16 @@ def test_turnover_rejects_positions_outside_the_unit_range() -> None:
         m.turnover([0.5, 1.5])
 
 
+def test_turnover_rejects_two_dimensional_positions() -> None:
+    with pytest.raises(ValueError, match="one-dimensional"):
+        m.turnover([[0.0, 0.5], [0.5, 0.0]])
+
+
+def test_turnover_rejects_non_finite_positions() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        m.turnover([0.0, float("nan")])
+
+
 def test_trade_count_rejects_negative_tolerance() -> None:
     with pytest.raises(ValueError, match="tolerance"):
         m.trade_count([0.5, 1.0], tolerance=-1.0)
@@ -200,6 +210,16 @@ def test_strategy_returns_reject_non_positive_prices() -> None:
 def test_strategy_returns_reject_negative_fees() -> None:
     with pytest.raises(ValueError, match="fees"):
         m.strategy_returns([1.0, 0.0], [100.0, 101.0], fees=-0.001)
+
+
+def test_strategy_returns_rejects_two_dimensional_prices() -> None:
+    with pytest.raises(ValueError, match="one-dimensional"):
+        m.strategy_returns([0.0, 0.0], [[100.0, 101.0]])
+
+
+def test_strategy_returns_rejects_non_finite_prices() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        m.strategy_returns([0.0, 0.0], [100.0, float("inf")])
 
 
 def test_strategy_returns_require_at_least_two_bars() -> None:

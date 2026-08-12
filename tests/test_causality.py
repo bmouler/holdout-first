@@ -181,6 +181,16 @@ def test_assert_causal_rejects_non_positive_prices() -> None:
         assert_causal(MomentumRule(), [100.0, 101.0, -1.0, 102.0])
 
 
+def test_assert_causal_rejects_two_dimensional_prices() -> None:
+    with pytest.raises(ValueError, match="one-dimensional"):
+        assert_causal(MomentumRule(), np.full((4, 2), 100.0))
+
+
+def test_assert_causal_rejects_non_finite_prices() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        assert_causal(MomentumRule(), [100.0, 101.0, float("inf"), 102.0])
+
+
 def test_assert_causal_rejects_negative_tolerance() -> None:
     with pytest.raises(ValueError, match="tolerance"):
         assert_causal(MomentumRule(), PRICES, tolerance=-1.0)

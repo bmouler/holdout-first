@@ -1,6 +1,6 @@
 # holdout-first
 
-[![ci](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml)
+[![CI](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml) [![branch coverage](https://img.shields.io/badge/branch%20coverage-100%25-brightgreen)](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml) [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A validation harness that fits a strategy on a small slice of history and demands that it survive the large remainder, across multiple instruments and multiple disjoint periods, under a hard budget on free parameters.
 

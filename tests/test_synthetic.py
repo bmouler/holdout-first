@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from holdout_first.splits import walk_forward_periods
+from holdout_first.splits import Split, walk_forward_periods
 from holdout_first.synthetic import MomentumRule, OverfittedLookup, PeekingRule, make_panel
 
 
@@ -109,6 +109,21 @@ def test_momentum_rule_rejects_a_non_integer_lookback() -> None:
         MomentumRule(lookback=20.0)  # type: ignore[arg-type]
 
 
+def test_reference_strategies_reject_two_dimensional_prices() -> None:
+    with pytest.raises(ValueError, match="one-dimensional"):
+        MomentumRule().positions(np.full((2, 2), 100.0))
+
+
+def test_reference_strategies_reject_non_finite_prices() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        MomentumRule().positions([100.0, float("nan")])
+
+
+def test_reference_strategies_reject_non_positive_prices() -> None:
+    with pytest.raises(ValueError, match="strictly positive"):
+        MomentumRule().positions([100.0, 0.0])
+
+
 def test_overfitted_lookup_declares_one_parameter_per_bucket() -> None:
     panel = make_panel(3, n_instruments=1, n_bars=400)
     splits = walk_forward_periods(400, 2, 0.30)
@@ -142,6 +157,11 @@ def test_overfitted_lookup_trades_far_more_often_than_the_momentum_rule() -> Non
     assert lookup_changes > 5 * momentum_changes
 
 
+def test_overfitted_lookup_stays_flat_through_feature_warmup() -> None:
+    strategy = OverfittedLookup(np.ones(OverfittedLookup.n_buckets))
+    assert strategy.positions(np.full(21, 100.0)).tolist() == [0.0] * 21
+
+
 def test_overfitted_lookup_rejects_a_wrong_shaped_table() -> None:
     with pytest.raises(ValueError, match=r"shape \(128,\)"):
         OverfittedLookup(np.zeros(10))
@@ -151,6 +171,13 @@ def test_overfitted_lookup_rejects_levered_table_entries() -> None:
     table = np.zeros(OverfittedLookup.n_buckets)
     table[0] = 2.0
     with pytest.raises(ValueError, match=r"\[-1, 1\]"):
+        OverfittedLookup(table)
+
+
+def test_overfitted_lookup_rejects_non_finite_table_entries() -> None:
+    table = np.zeros(OverfittedLookup.n_buckets)
+    table[0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
         OverfittedLookup(table)
 
 
@@ -169,6 +196,16 @@ def test_overfitted_lookup_fit_rejects_training_ranges_shorter_than_the_warmup()
     splits = walk_forward_periods(30, 1, 0.30)
     with pytest.raises(ValueError, match="feature warm-up"):
         OverfittedLookup.fit(panel, splits)
+
+
+def test_overfitted_lookup_ignores_training_ranges_outside_the_series() -> None:
+    panel = make_panel(3, n_instruments=1, n_bars=100)
+    splits = [
+        walk_forward_periods(100, 1, 0.30)[0],
+        Split(train_start=100, train_stop=120, test_start=120, test_stop=140, gap=0),
+    ]
+    fitted = OverfittedLookup.fit(panel, splits)
+    assert fitted.table.shape == (OverfittedLookup.n_buckets,)
 
 
 def test_peeking_rule_declares_no_parameters() -> None:

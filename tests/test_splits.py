@@ -98,6 +98,21 @@ def test_fraction_split_rejects_non_integer_n() -> None:
         fraction_split(100.0)  # type: ignore[arg-type]
 
 
+def test_fraction_split_rejects_non_integer_gap() -> None:
+    with pytest.raises(TypeError, match="gap must be an int"):
+        fraction_split(100, gap=1.5)  # type: ignore[arg-type]
+
+
+def test_fraction_split_rejects_non_integer_offset() -> None:
+    with pytest.raises(TypeError, match="offset must be an int"):
+        fraction_split(100, offset=1.5)  # type: ignore[arg-type]
+
+
+def test_fraction_split_rejects_negative_offset() -> None:
+    with pytest.raises(ValueError, match="offset must be non-negative"):
+        fraction_split(100, offset=-1)
+
+
 def test_walk_forward_blocks_are_disjoint_and_chronological() -> None:
     splits = walk_forward_periods(100, 4, 0.25)
     assert len(splits) == 4
