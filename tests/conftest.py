@@ -5,9 +5,16 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 import pytest
+from hypothesis import settings
 
 from holdout_first.splits import walk_forward_periods
 from holdout_first.synthetic import OverfittedLookup, make_panel
+
+settings.register_profile(
+    "det",
+    settings(max_examples=200, derandomize=True, deadline=None),
+)
+settings.load_profile("det")
 
 DEMO_SEED = 11
 N_PERIODS = 3
