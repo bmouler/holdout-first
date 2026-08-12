@@ -38,7 +38,9 @@ class Strategy(Protocol):
 
     n_parameters: int
 
-    def positions(self, prices: npt.NDArray[np.float64]) -> Sequence[float]:
+    def positions(
+        self, prices: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64] | Sequence[float]:
         """Return the target position for every bar in ``prices``.
 
         Args:

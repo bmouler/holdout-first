@@ -18,6 +18,8 @@ reports a single performance number.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import numpy.typing as npt
 
@@ -83,7 +85,7 @@ def coerce_positions(
             non-finite, or leaves the ``[-1, 1]`` range required by the protocol.
     """
     try:
-        array = np.asarray(raw, dtype=np.float64)
+        array = np.asarray(cast(npt.ArrayLike, raw), dtype=np.float64)
     except (TypeError, ValueError) as exc:
         raise TypeError(
             f"{label} must be a sequence of floats, got {type(raw).__name__}: {exc}"

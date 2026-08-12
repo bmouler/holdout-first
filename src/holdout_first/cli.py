@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
-from typing import Any
+from typing import cast
 
 from .causality import LookaheadError, assert_causal
 from .harness import Report, evaluate
@@ -49,14 +49,22 @@ def run_demo(seed: int) -> tuple[Report, Report, LookaheadError | None]:
     n_bars = len(next(iter(panel.values())))
     splits = walk_forward_periods(n_bars, _N_PERIODS, _TRAIN_FRACTION, gap=_GAP)
 
-    settings: dict[str, Any] = {
-        "n_periods": _N_PERIODS,
-        "train_fraction": _TRAIN_FRACTION,
-        "gap": _GAP,
-        "fees": 0.0,
-    }
-    honest = evaluate(MomentumRule(lookback=_LOOKBACK), panel, **settings)
-    overfitted = evaluate(OverfittedLookup.fit(panel, splits), panel, **settings)
+    honest = evaluate(
+        MomentumRule(lookback=_LOOKBACK),
+        panel,
+        n_periods=_N_PERIODS,
+        train_fraction=_TRAIN_FRACTION,
+        gap=_GAP,
+        fees=0.0,
+    )
+    overfitted = evaluate(
+        OverfittedLookup.fit(panel, splits),
+        panel,
+        n_periods=_N_PERIODS,
+        train_fraction=_TRAIN_FRACTION,
+        gap=_GAP,
+        fees=0.0,
+    )
 
     caught: LookaheadError | None = None
     try:
@@ -110,7 +118,7 @@ def _render_text(
 def _render_json(
     seed: int, honest: Report, overfitted: Report, caught: LookaheadError | None
 ) -> str:
-    payload: dict[str, Any] = {
+    payload: dict[str, object] = {
         "seed": seed,
         "honest": honest.to_dict(),
         "overfitted": overfitted.to_dict(),
@@ -170,11 +178,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         ``0`` if the demo behaved as documented, ``1`` otherwise.
     """
     args = build_parser().parse_args(argv)
-    honest, overfitted, caught = run_demo(args.seed)
-    if args.json:
-        print(_render_json(args.seed, honest, overfitted, caught))
+    seed = cast(int, args.seed)
+    use_json = cast(bool, args.json)
+    honest, overfitted, caught = run_demo(seed)
+    if use_json:
+        print(_render_json(seed, honest, overfitted, caught))
     else:
-        print(_render_text(args.seed, honest, overfitted, caught))
+        print(_render_text(seed, honest, overfitted, caught))
     return 0 if _demo_succeeded(honest, overfitted, caught) else 1
 
 

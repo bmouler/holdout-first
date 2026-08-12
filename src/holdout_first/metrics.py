@@ -160,7 +160,7 @@ def equity_curve(returns: npt.ArrayLike) -> npt.NDArray[np.float64]:
         ValueError: If ``returns`` is empty, not one-dimensional, non-finite, or contains a
             value at or below ``-1.0``.
     """
-    return np.cumprod(1.0 + _as_returns(returns))
+    return np.asarray(np.cumprod(1.0 + _as_returns(returns)), dtype=np.float64)
 
 
 def total_return(returns: npt.ArrayLike) -> float:

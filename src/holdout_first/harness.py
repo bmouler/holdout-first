@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -80,7 +80,7 @@ class SegmentMetrics:
     hit_rate: float
     turnover: float
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe mapping, with ``nan`` rendered as ``None``."""
         return {
             "n_bars": self.n_bars,
@@ -113,7 +113,7 @@ class CellResult:
     train: SegmentMetrics
     test: SegmentMetrics
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe mapping of the cell."""
         return {
             "instrument": self.instrument,
@@ -144,7 +144,7 @@ class RuleVerdict:
     threshold: float
     detail: str
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe mapping of the verdict."""
         return {
             "name": self.name,
@@ -179,7 +179,7 @@ class EvaluationSettings:
     min_positive_test_fraction: float
     min_sharpe_retention: float
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe mapping of the settings."""
         return {
             "n_periods": self.n_periods,
@@ -239,7 +239,7 @@ class Report:
         available = ", ".join(verdict.name for verdict in self.rules)
         raise KeyError(f"no rule named {name!r}; available rules are: {available}")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe mapping of the entire report."""
         return {
             "strategy": self.strategy_name,
@@ -344,7 +344,8 @@ def _segment_metrics(
     periods_per_year: float,
 ) -> SegmentMetrics:
     """Compute statistics for one segment, measured as if the segment were entered flat."""
-    start, stop = bounds.start, bounds.stop
+    start = cast(int, bounds.start)
+    stop = cast(int, bounds.stop)
     segment_positions = positions[start:stop]
     segment_returns = returns[start : stop - 1]
     return SegmentMetrics(

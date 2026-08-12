@@ -89,14 +89,14 @@ def make_panel(
         raise ValueError(f"n_bars must be at least 2, got {n_bars}")
     if not 0.0 <= drift_persistence < 1.0:
         raise ValueError(f"drift_persistence must lie in [0, 1), got {drift_persistence!r}")
-    for label, value in (
+    for scale_label, scale_value in (
         ("drift_scale", drift_scale),
         ("noise_scale", noise_scale),
         ("initial_price", initial_price),
     ):
-        number = float(value)
+        number = float(scale_value)
         if not np.isfinite(number) or number <= 0.0:
-            raise ValueError(f"{label} must be finite and positive, got {value!r}")
+            raise ValueError(f"{scale_label} must be finite and positive, got {scale_value!r}")
 
     rng = np.random.default_rng(seed)
     innovation_scale = float(drift_scale) * np.sqrt(1.0 - drift_persistence**2)
@@ -108,7 +108,9 @@ def make_panel(
         for step in range(1, n_bars):
             drift[step] = drift_persistence * drift[step - 1] + drift_shocks[step]
         returns = drift + rng.standard_normal(n_bars) * float(noise_scale)
-        panel[f"SYN_{index:02d}"] = float(initial_price) * np.cumprod(1.0 + returns)
+        panel[f"SYN_{index:02d}"] = np.asarray(
+            float(initial_price) * np.cumprod(1.0 + returns), dtype=np.float64
+        )
     return panel
 
 
@@ -198,13 +200,18 @@ def _lookup_features(prices: npt.NDArray[np.float64]) -> npt.NDArray[np.intp]:
         signs = signs * 2 + (np.roll(returns, lag) > 0.0).astype(np.intp)
     signs[:warmup] = 0
 
-    windows = np.lib.stride_tricks.sliding_window_view(returns, _VOLATILITY_WINDOW)
+    windows = np.asarray(
+        np.lib.stride_tricks.sliding_window_view(returns, _VOLATILITY_WINDOW),
+        dtype=np.float64,
+    )
     volatility = np.zeros(n, dtype=np.float64)
     volatility[_VOLATILITY_WINDOW:] = np.std(windows[:-1], axis=1, ddof=1)
     scaled = np.zeros(n, dtype=np.float64)
     active = volatility > 0.0
     scaled[active] = returns[active] / volatility[active]
-    magnitude = np.searchsorted(np.asarray(_MAGNITUDE_EDGES), scaled, side="right")
+    magnitude = np.asarray(
+        np.searchsorted(np.asarray(_MAGNITUDE_EDGES), scaled, side="right"), dtype=np.intp
+    )
 
     buckets[warmup:] = signs[warmup:] * (len(_MAGNITUDE_EDGES) + 1) + magnitude[warmup:]
     return buckets
