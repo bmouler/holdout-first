@@ -1,0 +1,20 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build distribution
+        run: pipx run build
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.2
