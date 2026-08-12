@@ -123,6 +123,21 @@ def test_lookahead_error_message_names_the_bar_and_both_values() -> None:
         assert_causal(PeekingRule(), PRICES, prefix_fractions=(0.5,))
 
 
+def test_lookahead_error_preserves_all_public_fields_and_exact_message() -> None:
+    error = LookaheadError(3, 7, -1.0, 1.0)
+    assert (error.index, error.prefix_length, error.prefix_value, error.full_value) == (
+        3,
+        7,
+        -1.0,
+        1.0,
+    )
+    assert str(error) == (
+        "look-ahead detected at bar 3: the strategy returned -1.0 when shown the first 7 "
+        "bars but 1.0 when shown the full series. A causal strategy cannot revise a past "
+        "position after seeing future data."
+    )
+
+
 def test_duplicate_prefix_fractions_are_evaluated_once() -> None:
     calls: list[int] = []
 
@@ -155,6 +170,11 @@ def test_assert_causal_rejects_an_object_without_positions() -> None:
         assert_causal(object(), PRICES)  # type: ignore[arg-type]
 
 
+def test_assert_causal_names_an_object_missing_positions() -> None:
+    with pytest.raises(TypeError, match=r"^object does not implement Strategy"):
+        assert_causal(object(), PRICES)  # type: ignore[arg-type]
+
+
 def test_assert_causal_rejects_a_wrong_length_result() -> None:
     with pytest.raises(ValueError, match="one position per bar"):
         assert_causal(WrongLength(), PRICES)
@@ -179,6 +199,11 @@ def test_assert_causal_rejects_a_series_too_short_to_truncate() -> None:
 def test_assert_causal_rejects_non_positive_prices() -> None:
     with pytest.raises(ValueError, match="strictly positive"):
         assert_causal(MomentumRule(), [100.0, 101.0, -1.0, 102.0])
+
+
+def test_assert_causal_rejects_zero_price_and_names_its_index() -> None:
+    with pytest.raises(ValueError, match=r"index 2 is np.float64\(0.0\)"):
+        assert_causal(MomentumRule(), [100.0, 101.0, 0.0, 102.0])
 
 
 def test_assert_causal_rejects_two_dimensional_prices() -> None:

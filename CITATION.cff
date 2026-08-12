@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it.
+type: software
+title: holdout-first
+abstract: Validation harness that fits on a small slice and demands survival on the large held-out remainder.
+authors:
+  - family-names: Mouler
+    given-names: Bert
+license: MIT
+repository-code: https://github.com/bmouler/holdout-first
+version: 1.0.0
+date-released: "2026-08-12"

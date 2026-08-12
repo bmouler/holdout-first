@@ -30,6 +30,64 @@ def test_panel_shape_and_names() -> None:
     assert all(series.shape == (250,) for series in panel.values())
 
 
+def test_make_panel_defaults_are_part_of_the_public_contract() -> None:
+    panel = make_panel(17)
+    assert list(panel) == [f"SYN_{index:02d}" for index in range(5)]
+    assert all(series.shape == (3000,) for series in panel.values())
+    assert panel["SYN_00"][0] == pytest.approx(101.52632496183232)
+
+
+def test_make_panel_matches_the_documented_seeded_ar1_process() -> None:
+    panel = make_panel(
+        123,
+        n_instruments=2,
+        n_bars=6,
+        drift_persistence=0.5,
+        drift_scale=0.002,
+        noise_scale=0.003,
+        initial_price=50.0,
+    )
+    expected = {
+        "SYN_00": [
+            50.017646468424445,
+            49.90644347714161,
+            49.93772684384383,
+            50.00886210184742,
+            49.887969884639766,
+            50.17014916686158,
+        ],
+        "SYN_01": [
+            49.702656247925916,
+            49.92900467470913,
+            50.22339355505434,
+            50.55836393838513,
+            50.69819838999663,
+            50.661329067866475,
+        ],
+    }
+    for name, prices in panel.items():
+        assert prices.dtype == np.float64
+        assert prices == pytest.approx(expected[name])
+
+
+def test_make_panel_accepts_the_smallest_documented_shape() -> None:
+    panel = make_panel(0, n_instruments=1, n_bars=2)
+    assert list(panel) == ["SYN_00"]
+    assert panel["SYN_00"].shape == (2,)
+
+
+@pytest.mark.parametrize("name", ["n_instruments", "n_bars"])
+def test_make_panel_reports_each_non_integer_count(name: str) -> None:
+    with pytest.raises(TypeError, match=rf"^{name} must be an int, got float$"):
+        make_panel(0, **{name: 1.5})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["drift_scale", "noise_scale", "initial_price"])
+def test_make_panel_reports_each_invalid_scale(name: str) -> None:
+    with pytest.raises(ValueError, match=rf"^{name} must be finite and positive"):
+        make_panel(0, **{name: 0.0})  # type: ignore[arg-type]
+
+
 def test_panel_prices_are_strictly_positive_and_finite() -> None:
     panel = make_panel(2, n_instruments=4, n_bars=1000)
     for series in panel.values():
@@ -71,6 +129,7 @@ def test_make_panel_rejects_a_non_integer_seed() -> None:
 
 def test_momentum_rule_declares_one_parameter() -> None:
     assert MomentumRule(lookback=20).n_parameters == 1
+    assert MomentumRule().lookback == 20
 
 
 def test_momentum_rule_is_flat_until_its_window_is_full() -> None:
@@ -160,6 +219,46 @@ def test_overfitted_lookup_trades_far_more_often_than_the_momentum_rule() -> Non
 def test_overfitted_lookup_stays_flat_through_feature_warmup() -> None:
     strategy = OverfittedLookup(np.ones(OverfittedLookup.n_buckets))
     assert strategy.positions(np.full(21, 100.0)).tolist() == [0.0] * 21
+
+
+def test_overfitted_lookup_matches_a_hand_checked_training_fixture() -> None:
+    prices = np.array(
+        [
+            100,
+            102,
+            101,
+            105,
+            103,
+            108,
+            107,
+            109,
+            106,
+            110,
+            111,
+            108,
+            112,
+            115,
+            113,
+            117,
+            116,
+            120,
+            119,
+            121,
+            123,
+            122,
+            125,
+            124,
+            128,
+        ],
+        dtype=np.float64,
+    )
+    strategy = OverfittedLookup.fit(
+        {"X": prices}, [Split(train_start=0, train_stop=24, test_start=24, test_stop=25, gap=0)]
+    )
+    active = np.flatnonzero(strategy.table)
+    assert active.tolist() == [42, 50, 94]
+    assert strategy.table[active].tolist() == [1.0, 1.0, -1.0]
+    assert strategy.positions(prices).tolist() == [0.0] * 21 + [1.0, -1.0, 1.0, 0.0]
 
 
 def test_overfitted_lookup_rejects_a_wrong_shaped_table() -> None:

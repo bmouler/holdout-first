@@ -32,7 +32,7 @@ from .metrics import (
 from .protocol import Strategy
 from .splits import Split, fraction_split, walk_forward_periods
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "BudgetVerdict",

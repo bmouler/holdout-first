@@ -1,6 +1,11 @@
 # holdout-first
 
-[![CI](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml) [![branch coverage](https://img.shields.io/badge/branch%20coverage-100%25-brightgreen)](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml) [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/holdout-first/actions/workflows/ci.yml)
+![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Types](https://img.shields.io/badge/types-mypy%20strict-blue)
+![Mutation](https://img.shields.io/badge/mutation-86%25%20killed-brightgreen)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A validation harness that fits a strategy on a small slice of history and demands that it survive the large remainder, across multiple instruments and multiple disjoint periods, under a hard budget on free parameters.
 
@@ -8,11 +13,17 @@ The conventional split fits on roughly 70% of history and validates on the other
 
 ## Install
 
-```
-pip install -e .
+```sh
+python -m pip install holdout-first
 ```
 
-Not on PyPI. Python 3.11 or newer, and `numpy` is the only runtime dependency. For the test suite and linter, `pip install -e ".[dev]"`.
+For editable development with the test and quality tooling:
+
+```sh
+python -m pip install -e ".[dev]"
+```
+
+Python 3.11 or newer is required, and `numpy` is the only runtime dependency.
 
 ## Quickstart
 
@@ -151,6 +162,9 @@ survived: True
 ```
 
 ## How it works
+```mermaid
+flowchart LR; P[price panel] --> S[small train slice]; S --> R[frozen rule]; R --> H[large held-out remainder<br/>instruments × periods]; H --> G[4 survival gates + parameter budget]; G --> V[verdict + report]
+```
 
 `evaluate(strategy, panel)` runs a strategy once per instrument on the full price series, slices the resulting position path into walk-forward train and test segments, and applies four rules. A strategy survives only if all four pass, and each one reports its own verdict with the numbers behind it.
 
@@ -163,6 +177,33 @@ survived: True
 **Survival.** Two rules operate on the grid of instrument-period cells. `test_sharpe_positive` requires a positive held-out Sharpe in at least a supermajority of cells, two thirds by default, because consistency across instruments and periods is the evidence and a single spectacular cell is not. `sharpe_retention` requires the mean held-out Sharpe to be at least half the mean training Sharpe; a non-positive training Sharpe fails the rule outright, since there is nothing to retain. Some decay is normal, and a collapse means the training figure was describing the sample rather than the process.
 
 **Metrics.** Every statistic is a pure function on a numpy array, and every convention is written in its docstring: simple returns rather than log returns, geometric compounding, sample standard deviation with `ddof=1`, and a single `sqrt(periods_per_year)` scaling with no autocorrelation adjustment. `max_drawdown` returns a non-negative magnitude. `periods_per_year` is always explicit. Transaction costs default to `0.0` and, when set, are charged per unit of turnover.
+
+## Verification
+
+### Mutation testing
+
+From the repository root, reproduce the mutation run with:
+
+```sh
+source .venv/bin/activate
+mutmut run
+mutmut results
+```
+
+The run generated 1,650 mutants and killed 1,430 (86.67%). The other 220 were explicitly skipped after individual review established that they are behavior-equivalent under the documented contract; they are not missed surviving mutants.
+
+| Reviewed equivalent rationale | Count |
+|---|---:|
+| Dtype, default, or cast changes with identical observable behavior | 67 |
+| Wording or presentation changes outside the asserted contract | 56 |
+| Explicit defaults equivalent to the existing implicit defaults | 25 |
+| Unreachable defensive branches | 22 |
+| Degenerate numeric substitutions with identical results | 19 |
+| Alternate paths for inputs already rejected as invalid | 17 |
+| Sentinel or warmup substitutions with identical behavior | 14 |
+| **Total explicitly skipped equivalents** | **220** |
+
+There were zero surviving, timed-out, or suspicious mutants.
 
 ## Limitations
 

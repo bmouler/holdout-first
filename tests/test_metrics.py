@@ -22,6 +22,13 @@ def test_total_return_of_single_period_is_that_period() -> None:
 def test_equity_curve_starts_from_one_and_compounds() -> None:
     curve = m.equity_curve([0.10, -0.05])
     assert curve == pytest.approx([1.10, 1.045])
+    assert curve.dtype == np.float64
+
+
+def test_equity_curve_converts_integer_input_to_float64() -> None:
+    curve = m.equity_curve([0, 1])
+    assert curve.dtype == np.float64
+    assert curve.tolist() == [1.0, 2.0]
 
 
 def test_annualized_return_is_geometric_not_arithmetic() -> None:
@@ -98,9 +105,17 @@ def test_hit_rate_is_nan_when_every_period_is_flat() -> None:
     assert math.isnan(m.hit_rate([0.0, 0.0, 0.0]))
 
 
+def test_hit_rate_of_one_active_period_is_defined() -> None:
+    assert m.hit_rate([0.0, 0.2, 0.0]) == 1.0
+
+
 def test_turnover_charges_the_opening_position_and_not_the_final_exit() -> None:
     # 0 -> 0.5 -> 0.5 -> -1.0 -> 0.0 costs 0.5 + 0 + 1.5 + 1.0 = 3.0.
     assert m.turnover([0.5, 0.5, -1.0, 0.0]) == pytest.approx(3.0)
+
+
+def test_turnover_charges_the_actual_first_position() -> None:
+    assert m.turnover([0.25, 0.75]) == pytest.approx(0.75)
 
 
 def test_turnover_of_one_full_round_trip_is_two() -> None:
@@ -118,6 +133,10 @@ def test_trade_count_counts_changes_including_the_opening_position() -> None:
 def test_trade_count_ignores_dust_below_tolerance() -> None:
     assert m.trade_count([1.0, 1.0 + 1e-15, 1.0]) == 1
     assert m.trade_count([1.0, 0.9, 1.0], tolerance=0.5) == 1
+
+
+def test_trade_count_accepts_zero_tolerance_and_does_not_count_unchanged_positions() -> None:
+    assert m.trade_count([0.0, 0.0, 1.0], tolerance=0.0) == 1
 
 
 def test_strategy_returns_are_aligned_one_bar_forward() -> None:
@@ -156,6 +175,26 @@ def test_metrics_reject_malformed_return_series(returns: object) -> None:
         m.total_return(returns)
 
 
+def test_metrics_convert_integer_inputs_to_float64() -> None:
+    assert m.equity_curve([0, 1]).dtype == np.float64
+    assert m.turnover([0, 1]) == pytest.approx(1.0)
+
+
+def test_metric_validation_messages_are_stable_and_specific() -> None:
+    with pytest.raises(ValueError, match=r"^returns must be one-dimensional, got shape \(1, 2\)$"):
+        m.total_return([[0.1, 0.2]])
+    with pytest.raises(ValueError, match=r"^returns must be finite; found nan or inf$"):
+        m.total_return([float("nan")])
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"^returns must exceed -1\.0 \(a return of -100% wipes the equity curve "
+            r"to zero and makes every compounded statistic meaningless\)$"
+        ),
+    ):
+        m.total_return([-1.0])
+
+
 def test_annualized_volatility_requires_two_observations() -> None:
     with pytest.raises(ValueError, match="at least 2"):
         m.annualized_volatility([0.01], 252.0)
@@ -190,6 +229,22 @@ def test_turnover_rejects_two_dimensional_positions() -> None:
 def test_turnover_rejects_non_finite_positions() -> None:
     with pytest.raises(ValueError, match="finite"):
         m.turnover([0.0, float("nan")])
+    with pytest.raises(ValueError, match=r"^positions must be finite; found nan or inf$"):
+        m.turnover([0.0, float("nan")])
+
+
+def test_positions_boundary_and_validation_message_are_exact() -> None:
+    tolerance = 1e-12
+    assert m.turnover([1.0 + tolerance]) == pytest.approx(1.0 + tolerance)
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"^positions must lie in \[-1, 1\]; index 1 is np.float64\(1\.5\)\. "
+            r"Leverage is not modelled here, so scale your sizing before handing "
+            r"positions to the harness\.$"
+        ),
+    ):
+        m.turnover([0.0, 1.5])
 
 
 def test_trade_count_rejects_negative_tolerance() -> None:
@@ -205,6 +260,17 @@ def test_strategy_returns_reject_length_mismatch() -> None:
 def test_strategy_returns_reject_non_positive_prices() -> None:
     with pytest.raises(ValueError, match="strictly positive"):
         m.strategy_returns([1.0, 0.0], [100.0, 0.0])
+    with pytest.raises(
+        ValueError,
+        match=r"^prices must be strictly positive; index 1 is np.float64\(0\.0\)$",
+    ):
+        m.strategy_returns([1.0, 0.0], [100.0, 0.0])
+
+
+def test_strategy_returns_accept_prices_below_one_and_convert_integer_arrays() -> None:
+    result = m.strategy_returns(np.array([1, 0]), np.array([1, 2]))
+    assert result.dtype == np.float64
+    assert result.tolist() == [1.0]
 
 
 def test_strategy_returns_reject_negative_fees() -> None:
@@ -219,6 +285,8 @@ def test_strategy_returns_rejects_two_dimensional_prices() -> None:
 
 def test_strategy_returns_rejects_non_finite_prices() -> None:
     with pytest.raises(ValueError, match="finite"):
+        m.strategy_returns([0.0, 0.0], [100.0, float("inf")])
+    with pytest.raises(ValueError, match=r"^prices must be finite; found nan or inf$"):
         m.strategy_returns([0.0, 0.0], [100.0, float("inf")])
 
 

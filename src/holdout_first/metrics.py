@@ -147,7 +147,6 @@ def strategy_returns(
 
 def equity_curve(returns: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """Compound a return series into a wealth index starting at ``1.0``.
-
     Args:
         returns: Simple per-period returns.
 

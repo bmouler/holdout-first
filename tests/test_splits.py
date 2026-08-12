@@ -104,7 +104,7 @@ def test_fraction_split_rejects_non_integer_gap() -> None:
 
 
 def test_fraction_split_rejects_non_integer_offset() -> None:
-    with pytest.raises(TypeError, match="offset must be an int"):
+    with pytest.raises(TypeError, match=r"^offset must be an int, got float$"):
         fraction_split(100, offset=1.5)  # type: ignore[arg-type]
 
 
@@ -163,5 +163,5 @@ def test_walk_forward_rejects_non_positive_period_counts(n_periods: int) -> None
 
 
 def test_walk_forward_rejects_non_integer_period_count() -> None:
-    with pytest.raises(TypeError, match="n_periods must be an int"):
+    with pytest.raises(TypeError, match=r"^n_periods must be an int, got float$"):
         walk_forward_periods(100, 3.0)  # type: ignore[arg-type]

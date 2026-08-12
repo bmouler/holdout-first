@@ -36,6 +36,11 @@ def test_zero_parameters_pass_with_an_infinite_ratio() -> None:
     assert math.isinf(verdict.trades_per_parameter)
     assert verdict.required_trades == 0.0
     assert verdict.passed is True
+    assert (verdict.n_trades, verdict.n_parameters, verdict.min_trades_per_parameter) == (
+        0,
+        0,
+        50.0,
+    )
 
 
 def test_zero_trades_with_parameters_always_fails() -> None:
@@ -63,6 +68,14 @@ def test_a_larger_parameter_count_needs_proportionally_more_trades() -> None:
 def test_negative_counts_are_rejected(n_trades: int, n_parameters: int) -> None:
     with pytest.raises(ValueError, match="non-negative"):
         parameter_budget(n_trades, n_parameters)
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"n_parameters must be non-negative, got -1\. "
+            r"Count every value that was chosen by looking at data\."
+        ),
+    ):
+        parameter_budget(10, -1)
 
 
 @pytest.mark.parametrize("value", [0.0, -5.0, float("nan"), float("inf")])
@@ -71,10 +84,18 @@ def test_invalid_minimum_ratio_is_rejected(value: float) -> None:
         parameter_budget(100, 1, min_trades_per_parameter=value)
 
 
+def test_positive_minimum_below_one_is_accepted() -> None:
+    assert parameter_budget(1, 2, min_trades_per_parameter=0.5).passed is True
+
+
 def test_non_integer_counts_are_rejected() -> None:
     with pytest.raises(TypeError, match="n_trades must be an int"):
         parameter_budget(100.0, 1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="n_parameters must be an int"):
+        parameter_budget(100, 1.0)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"got float$"):
+        parameter_budget(100.0, 1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"got float$"):
         parameter_budget(100, 1.0)  # type: ignore[arg-type]
 
 
