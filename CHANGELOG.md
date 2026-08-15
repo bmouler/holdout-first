@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Reduced redundant panel and causality validation and shared metric work across aligned walk-forward segments without changing report output.
+- Preserved scalar annualized-return rounding across platforms while batching the remaining metric work.
 - Added a deterministic end-to-end `evaluate(...).to_dict()` benchmark with exact output checksums.
 
 

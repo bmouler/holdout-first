@@ -190,8 +190,8 @@ all 72 materialized cells are included. Sufficiently large metric batches use at
 worker threads.
 
 On an Apple M3 Max with CPython 3.11.12 on 2026-08-15, the frozen baseline
-`0e6253c1e0df` measured **22.186 ms** median and this implementation **9.998 ms**, a
-**2.219x speedup** over 15 samples after three warmups. Both runs produced SHA-256
+`0e6253c1e0df` measured **22.554 ms** median and this implementation **10.510 ms**, a
+**2.146x speedup** over 15 samples after three warmups. Both runs produced SHA-256
 `b97c08eeec26c31a91bae5d15f991fc52c364066e30ebce4c9d0b3fc4da1c379`. These are local
 in-process timings; rerun on the target machine, using `PYTHONPATH` to select the source
 worktree being measured.

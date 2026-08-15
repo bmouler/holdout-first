@@ -426,7 +426,8 @@ def _summarize_equal_segments(
     curves = np.cumprod(return_batch, axis=1)
     growth = curves[:, -1]
     totals = growth - 1.0
-    annualized = growth ** (periods_per_year / return_batch.shape[1]) - 1.0
+    exponent = periods_per_year / return_batch.shape[1]
+    annualized = tuple(float(value) ** exponent - 1.0 for value in growth)
     np.maximum.accumulate(curves, axis=1, out=return_batch)
     np.maximum(return_batch, 1.0, out=return_batch)
     np.divide(curves, return_batch, out=curves)
