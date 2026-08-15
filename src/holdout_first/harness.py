@@ -30,14 +30,19 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
 from . import metrics as m
 from .budget import BudgetVerdict, parameter_budget
-from .causality import LookaheadError, assert_causal, coerce_positions
+from .causality import (
+    LookaheadError,
+    _assert_causal_at_prefixes,
+    _default_prefix_lengths,
+    coerce_positions,
+)
 from .protocol import Strategy
 from .splits import Split, walk_forward_periods
 
@@ -299,9 +304,7 @@ class Report:
 def _jsonable(value: float) -> float | None:
     """Map non-finite floats to ``None`` so the result survives ``json.dumps``."""
     number = float(value)
-    if math.isnan(number) or math.isinf(number):
-        return None
-    return number
+    return number if math.isfinite(number) else None
 
 
 def _validate_panel(panel: Mapping[str, npt.ArrayLike]) -> dict[str, npt.NDArray[np.float64]]:
@@ -319,13 +322,16 @@ def _validate_panel(panel: Mapping[str, npt.ArrayLike]) -> dict[str, npt.NDArray
         array = np.asarray(prices, dtype=np.float64)
         if array.ndim != 1:
             raise ValueError(f"panel[{name!r}] must be one-dimensional, got shape {array.shape}")
-        if not np.all(np.isfinite(array)):
-            raise ValueError(f"panel[{name!r}] must be finite; found nan or inf")
-        if np.any(array <= 0.0):
-            worst = int(np.argmin(array))
-            raise ValueError(
-                f"panel[{name!r}] must be strictly positive; index {worst} is {array[worst]!r}"
-            )
+        if array.size:
+            minimum_price = float(np.min(array))
+            maximum_price = float(np.max(array))
+            if not np.isfinite(minimum_price) or not np.isfinite(maximum_price):
+                raise ValueError(f"panel[{name!r}] must be finite; found nan or inf")
+            if minimum_price <= 0.0:
+                worst = int(np.argmin(array))
+                raise ValueError(
+                    f"panel[{name!r}] must be strictly positive; index {worst} is {array[worst]!r}"
+                )
         validated[name] = array
         lengths.add(array.size)
     if len(lengths) != 1:
@@ -335,30 +341,6 @@ def _validate_panel(panel: Mapping[str, npt.ArrayLike]) -> dict[str, npt.NDArray
             "period means the same stretch of history for every instrument."
         )
     return validated
-
-
-def _segment_metrics(
-    positions: npt.NDArray[np.float64],
-    returns: npt.NDArray[np.float64],
-    bounds: slice,
-    periods_per_year: float,
-) -> SegmentMetrics:
-    """Compute statistics for one segment, measured as if the segment were entered flat."""
-    start = cast(int, bounds.start)
-    stop = cast(int, bounds.stop)
-    segment_positions = positions[start:stop]
-    segment_returns = returns[start : stop - 1]
-    return SegmentMetrics(
-        n_bars=int(stop - start),
-        n_trades=m.trade_count(segment_positions),
-        total_return=m.total_return(segment_returns),
-        annualized_return=m.annualized_return(segment_returns, periods_per_year),
-        annualized_volatility=m.annualized_volatility(segment_returns, periods_per_year),
-        sharpe=m.sharpe(segment_returns, periods_per_year),
-        max_drawdown=m.max_drawdown(segment_returns),
-        hit_rate=m.hit_rate(segment_returns),
-        turnover=m.turnover(segment_positions),
-    )
 
 
 def evaluate(
@@ -458,25 +440,61 @@ def evaluate(
                 "reduce gap."
             )
 
-    cells: list[CellResult] = []
+    prefix_lengths = _default_prefix_lengths(n_bars)
+    bounds = tuple(segment for split in splits for segment in (split.train_slice, split.test_slice))
+    measured_return_segments = np.full(n_bars - 1, -1, dtype=np.intp)
+    for segment_index, segment in enumerate(bounds):
+        measured_return_segments[segment.start : segment.stop - 1] = segment_index
+
+    evaluated: list[tuple[str, npt.NDArray[np.float64], npt.NDArray[np.float64]]] = []
     causality_failures: list[str] = []
     for name, prices in prices_by_name.items():
         try:
-            positions = assert_causal(strategy, prices)
+            positions = _assert_causal_at_prefixes(strategy, prices, prefix_lengths)
         except LookaheadError as exc:
             causality_failures.append(f"{name} at bar {exc.index}")
             positions = coerce_positions(
                 strategy.positions(prices), prices.size, label=f"positions({name})"
             )
         returns = m.strategy_returns(positions, prices, fees=cost)
+        invalid_returns = ~np.isfinite(returns)
+        np.logical_or(invalid_returns, returns <= -1.0, out=invalid_returns)
+        np.logical_and(
+            invalid_returns,
+            measured_return_segments >= 0,
+            out=invalid_returns,
+        )
+        if np.any(invalid_returns):
+            first_segment = int(np.min(measured_return_segments[invalid_returns]))
+            segment = bounds[first_segment]
+            m._as_returns(returns[segment.start : segment.stop - 1])
+        evaluated.append((name, positions, returns))
+
+    position_segments = tuple(
+        positions[segment.start : segment.stop]
+        for _, positions, _ in evaluated
+        for segment in bounds
+    )
+    return_segments = tuple(
+        returns[segment.start : segment.stop - 1]
+        for _, _, returns in evaluated
+        for segment in bounds
+    )
+    summaries = m._segment_summaries(position_segments, return_segments, annualization)
+    cells: list[CellResult] = []
+    summaries_per_instrument = len(bounds)
+    for instrument_index, (name, _, _) in enumerate(evaluated):
+        offset = instrument_index * summaries_per_instrument
         for period, split in enumerate(splits):
+            train_summary = summaries[offset + period * 2]
+            test_summary = summaries[offset + period * 2 + 1]
             cells.append(
                 CellResult(
                     instrument=name,
                     period=period,
                     split=split,
-                    train=_segment_metrics(positions, returns, split.train_slice, annualization),
-                    test=_segment_metrics(positions, returns, split.test_slice, annualization),
+                    train=SegmentMetrics(split.train_length, *train_summary),
+                    test=SegmentMetrics(split.test_length, *test_summary),
                 )
             )
 

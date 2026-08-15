@@ -11,8 +11,9 @@ import pytest
 from conftest import GAP, N_PERIODS, TRAIN_FRACTION
 
 from holdout_first import evaluate
+from holdout_first import metrics as m
 from holdout_first.harness import Report
-from holdout_first.synthetic import MomentumRule, OverfittedLookup, PeekingRule
+from holdout_first.synthetic import MomentumRule, OverfittedLookup, PeekingRule, make_panel
 
 RULE_NAMES = ("causality", "parameter_budget", "test_sharpe_positive", "sharpe_retention")
 
@@ -57,6 +58,33 @@ def test_report_has_one_cell_per_instrument_and_period(
     assert len(report.cells) == len(panel) * N_PERIODS
     assert report.instruments == tuple(panel)
     assert {cell.period for cell in report.cells} == {0, 1, 2}
+
+
+def test_large_panel_threaded_metrics_match_public_scalar_metrics_exactly() -> None:
+    panel = make_panel(83, n_instruments=12, n_bars=18_000)
+    strategy = MomentumRule(lookback=20)
+    report = evaluate(strategy, panel, n_periods=3, gap=20)
+
+    cell = report.cells[-1]
+    prices = panel[cell.instrument]
+    positions = strategy.positions(prices)
+    returns = m.strategy_returns(positions, prices)
+    bounds = cell.split.test_slice
+    segment_positions = positions[bounds]
+    segment_returns = returns[bounds.start : bounds.stop - 1]
+    expected = {
+        "n_bars": cell.split.test_length,
+        "n_trades": m.trade_count(segment_positions),
+        "total_return": m.total_return(segment_returns),
+        "annualized_return": m.annualized_return(segment_returns, 252.0),
+        "annualized_volatility": m.annualized_volatility(segment_returns, 252.0),
+        "sharpe": m.sharpe(segment_returns, 252.0),
+        "max_drawdown": m.max_drawdown(segment_returns),
+        "hit_rate": m.hit_rate(segment_returns),
+        "turnover": m.turnover(segment_positions),
+    }
+    assert cell.test.to_dict() == expected
+    assert len(report.cells) == 36
 
 
 def test_held_out_segments_are_larger_than_training_segments(
@@ -218,6 +246,14 @@ def test_panel_must_not_be_empty() -> None:
         evaluate(MomentumRule(), {})
 
 
+def test_panel_price_series_must_not_be_empty() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"n must be at least 2 to form a train and a test range, got 0",
+    ):
+        evaluate(MomentumRule(), {"empty": np.array([], dtype=np.float64)})
+
+
 def test_panel_must_be_a_mapping() -> None:
     with pytest.raises(TypeError, match="panel must be a mapping"):
         evaluate(MomentumRule(), [1.0, 2.0])  # type: ignore[arg-type]
@@ -240,6 +276,21 @@ def test_panel_prices_must_be_finite() -> None:
     prices[7] = np.nan
     with pytest.raises(ValueError, match="finite"):
         evaluate(MomentumRule(), {"a": prices})
+
+
+def test_evaluate_preserves_invalid_measured_return_failure() -> None:
+    class AlwaysShort:
+        n_parameters = 0
+
+        def positions(self, prices: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+            return np.full(prices.size, -1.0)
+
+    prices = np.power(2.0, np.arange(30, dtype=np.float64))
+    with pytest.raises(
+        ValueError,
+        match=r"returns must exceed -1\.0",
+    ):
+        evaluate(AlwaysShort(), {"doubling": prices}, n_periods=1)
 
 
 def test_panel_instrument_names_must_be_strings() -> None:
@@ -268,6 +319,18 @@ def test_strategy_must_declare_an_integer_parameter_count(
 def test_strategy_must_implement_positions(panel: dict[str, npt.NDArray[np.float64]]) -> None:
     with pytest.raises(TypeError, match="does not implement Strategy"):
         run(object(), panel)
+
+
+def test_evaluate_accepts_non_identical_prefixes_within_causality_tolerance() -> None:
+    class TinyLengthDrift:
+        n_parameters = 0
+
+        def positions(self, prices: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+            return np.full(prices.size, prices.size * 1e-13)
+
+    prices = np.linspace(100.0, 120.0, 200)
+    report = evaluate(TinyLengthDrift(), {"drift": prices}, n_periods=1)
+    assert report.rule("causality").passed is True
 
 
 @pytest.mark.parametrize("value", [0.0, 1.5, -0.2])

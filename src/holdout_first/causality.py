@@ -97,16 +97,19 @@ def coerce_positions(
             f"{label} must return one position per bar: expected {expected_length}, got "
             f"{array.size}"
         )
-    if not np.all(np.isfinite(array)):
-        bad = int(np.argmax(~np.isfinite(array)))
-        raise ValueError(f"{label} must be finite; index {bad} is {array[bad]!r}")
-    if np.any(np.abs(array) > 1.0 + _POSITION_TOLERANCE):
-        worst = int(np.argmax(np.abs(array)))
-        raise ValueError(
-            f"{label} must lie in [-1, 1]; index {worst} is {array[worst]!r}. The protocol "
-            "expresses a position as a signed fraction of capital, so leverage must be "
-            "applied outside the harness."
-        )
+    if array.size:
+        magnitude = np.abs(array)
+        maximum_magnitude = float(np.max(magnitude))
+        if not np.isfinite(maximum_magnitude):
+            bad = int(np.argmax(~np.isfinite(array)))
+            raise ValueError(f"{label} must be finite; index {bad} is {array[bad]!r}")
+        if maximum_magnitude > 1.0 + _POSITION_TOLERANCE:
+            worst = int(np.argmax(magnitude))
+            raise ValueError(
+                f"{label} must lie in [-1, 1]; index {worst} is {array[worst]!r}. The protocol "
+                "expresses a position as a signed fraction of capital, so leverage must be "
+                "applied outside the harness."
+            )
     return array
 
 
@@ -189,9 +192,50 @@ def assert_causal(
             prefix_length,
             label=f"positions(first {prefix_length} bars)",
         )
+        if np.array_equal(truncated, full[:prefix_length]):
+            continue
         difference = np.abs(truncated - full[:prefix_length])
         if np.any(difference > limit):
             index = int(np.argmax(difference > limit))
+            raise LookaheadError(
+                index=index,
+                prefix_length=prefix_length,
+                prefix_value=float(truncated[index]),
+                full_value=float(full[index]),
+            )
+    return full
+
+
+def _default_prefix_lengths(n: int) -> tuple[int, ...]:
+    """Resolve the default fractions once for callers checking an aligned panel."""
+    return tuple(
+        dict.fromkeys(
+            max(2, min(n - 1, int(n * fraction))) for fraction in _DEFAULT_PREFIX_FRACTIONS
+        )
+    )
+
+
+def _assert_causal_at_prefixes(
+    strategy: Strategy,
+    price_array: npt.NDArray[np.float64],
+    prefix_lengths: tuple[int, ...],
+    tolerance: float = 1e-10,
+) -> npt.NDArray[np.float64]:
+    """Run the causality comparison when prices and prefix lengths are already validated."""
+    n = price_array.size
+    full = coerce_positions(strategy.positions(price_array), n, label="positions(full series)")
+    for prefix_length in prefix_lengths:
+        truncated = coerce_positions(
+            strategy.positions(price_array[:prefix_length].copy()),
+            prefix_length,
+            label=f"positions(first {prefix_length} bars)",
+        )
+        if np.array_equal(truncated, full[:prefix_length]):
+            continue
+        difference = truncated - full[:prefix_length]
+        np.abs(difference, out=difference)
+        if np.max(difference) > tolerance:
+            index = int(np.argmax(difference > tolerance))
             raise LookaheadError(
                 index=index,
                 prefix_length=prefix_length,

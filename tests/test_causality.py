@@ -227,6 +227,12 @@ def test_coerce_positions_accepts_a_plain_list() -> None:
     assert result.tolist() == [0.0, 1.0, -1.0]
 
 
+def test_coerce_positions_accepts_an_empty_result_when_zero_was_expected() -> None:
+    result = coerce_positions([], 0)
+    assert result.dtype == np.float64
+    assert result.tolist() == []
+
+
 def test_coerce_positions_rejects_non_numeric_output() -> None:
     with pytest.raises(TypeError, match="sequence of floats"):
         coerce_positions("not positions", 3)

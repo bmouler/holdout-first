@@ -120,9 +120,11 @@ def _as_prices(prices: npt.ArrayLike, minimum: int) -> npt.NDArray[np.float64]:
         raise ValueError(f"prices must be one-dimensional, got shape {array.shape}")
     if array.size < minimum:
         raise ValueError(f"prices must contain at least {minimum} bars, got {array.size}")
-    if not np.all(np.isfinite(array)):
+    minimum_price = float(np.min(array))
+    maximum_price = float(np.max(array))
+    if not np.isfinite(minimum_price) or not np.isfinite(maximum_price):
         raise ValueError("prices must be finite; found nan or inf")
-    if np.any(array <= 0.0):
+    if minimum_price <= 0.0:
         worst = int(np.argmin(array))
         raise ValueError(f"prices must be strictly positive; index {worst} is {array[worst]!r}")
     return array
@@ -174,8 +176,10 @@ class MomentumRule:
         out = np.zeros(array.size, dtype=np.float64)
         if array.size <= self.lookback:
             return out
-        window = array[self.lookback :] / array[: -self.lookback] - 1.0
-        out[self.lookback :] = np.sign(window)
+        momentum = out[self.lookback :]
+        np.divide(array[self.lookback :], array[: -self.lookback], out=momentum)
+        np.subtract(momentum, 1.0, out=momentum)
+        np.sign(momentum, out=momentum)
         return out
 
 

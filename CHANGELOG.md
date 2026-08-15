@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- Reduced redundant panel and causality validation and shared metric work across aligned walk-forward segments without changing report output.
+- Added a deterministic end-to-end `evaluate(...).to_dict()` benchmark with exact output checksums.
+
+
 ## [1.0.0] - 2026-08-12
 
 First stable release.
