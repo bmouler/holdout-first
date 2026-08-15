@@ -43,6 +43,7 @@ __all__ = [
 _POSITION_TOLERANCE = 1e-12
 _SegmentSummary = tuple[int, float, float, float, float, float, float, float]
 _IndexedSegmentSummary = tuple[int, _SegmentSummary]
+_NUMPY_SUPPORTS_STD_MEAN = np.lib.NumpyVersion(np.__version__) >= "2.0.0"
 
 
 def _as_returns(returns: npt.ArrayLike, *, minimum: int = 1) -> npt.NDArray[np.float64]:
@@ -85,6 +86,27 @@ def _check_periods_per_year(periods_per_year: float) -> float:
     if not np.isfinite(value) or value <= 0.0:
         raise ValueError(f"periods_per_year must be finite and positive, got {periods_per_year!r}")
     return value
+
+
+def _strategy_returns_from_validated(
+    positions: npt.NDArray[np.float64],
+    prices: npt.NDArray[np.float64],
+    fees: float,
+) -> npt.NDArray[np.float64]:
+    result = np.empty(prices.size - 1, dtype=np.float64)
+    np.divide(prices[1:], prices[:-1], out=result)
+    np.subtract(result, 1.0, out=result)
+    held = positions[:-1]
+    np.multiply(held, result, out=result)
+    if fees == 0.0:
+        return result
+    costs = np.empty_like(result)
+    costs[0] = held[0]
+    np.subtract(held[1:], held[:-1], out=costs[1:])
+    np.abs(costs, out=costs)
+    np.multiply(fees, costs, out=costs)
+    np.subtract(result, costs, out=result)
+    return result
 
 
 def strategy_returns(
@@ -144,13 +166,7 @@ def strategy_returns(
     if not np.isfinite(fee_rate) or fee_rate < 0.0:
         raise ValueError(f"fees must be finite and non-negative, got {fees!r}")
 
-    price_returns = price_array[1:] / price_array[:-1] - 1.0
-    held = position_array[:-1]
-    gross = held * price_returns
-    if fee_rate == 0.0:
-        return gross
-    previous = np.concatenate(([0.0], held[:-1]))
-    return gross - fee_rate * np.abs(held - previous)
+    return _strategy_returns_from_validated(position_array, price_array, fee_rate)
 
 
 def equity_curve(returns: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -392,20 +408,30 @@ def _summarize_equal_segments(
     annualization_sqrt: float,
 ) -> tuple[_IndexedSegmentSummary, ...]:
     """Summarize one group whose segment arrays all share a length."""
-    position_batch = np.stack([position_segments[index] for index in entries])
-    return_batch = np.stack([return_segments[index] for index in entries])
-
+    position_batch = np.concatenate([position_segments[index] for index in entries]).reshape(
+        len(entries), -1
+    )
     position_changes = np.diff(position_batch, axis=1)
     np.abs(position_changes, out=position_changes)
-    opening_positions = np.abs(position_batch[:, 0])
+    opening_positions = position_batch[:, 0]
+    np.abs(opening_positions, out=opening_positions)
     trade_counts = (opening_positions > _POSITION_TOLERANCE).astype(np.intp) + np.count_nonzero(
         position_changes > _POSITION_TOLERANCE, axis=1
     )
     turnovers = opening_positions + np.sum(position_changes, axis=1)
 
-    dispersions = np.std(return_batch, axis=1, ddof=1)
-    volatilities = dispersions * annualization_sqrt
+    return_batch = position_changes
+    np.concatenate([return_segments[index] for index in entries], out=return_batch.ravel())
     means = np.mean(return_batch, axis=1)
+    if _NUMPY_SUPPORTS_STD_MEAN:
+        dispersions = np.std(
+            return_batch,
+            axis=1,
+            ddof=1,
+            mean=means[:, None],
+        )
+    else:  # pragma: no cover - exercised on the supported NumPy 1.x line
+        dispersions = np.std(return_batch, axis=1, ddof=1)
     sharpes = np.divide(
         means,
         dispersions,
@@ -413,6 +439,8 @@ def _summarize_equal_segments(
         where=dispersions != 0.0,
     )
     np.multiply(sharpes, annualization_sqrt, out=sharpes)
+    np.multiply(dispersions, annualization_sqrt, out=dispersions)
+    volatilities = dispersions
     active_counts = np.count_nonzero(return_batch, axis=1)
     positive_counts = np.count_nonzero(return_batch > 0.0, axis=1)
     hit_rates = np.divide(
@@ -422,16 +450,18 @@ def _summarize_equal_segments(
         where=active_counts != 0,
     )
 
-    np.add(return_batch, 1.0, out=return_batch)
-    curves = np.cumprod(return_batch, axis=1)
+    curves = position_batch[:, :-1]
+    np.add(return_batch, 1.0, out=curves)
+    np.cumprod(curves, axis=1, out=curves)
     growth = curves[:, -1]
-    totals = growth - 1.0
-    exponent = periods_per_year / return_batch.shape[1]
+    totals = means
+    np.subtract(growth, 1.0, out=totals)
+    exponent = periods_per_year / curves.shape[1]
     annualized = tuple(float(value) ** exponent - 1.0 for value in growth)
     np.maximum.accumulate(curves, axis=1, out=return_batch)
     np.maximum(return_batch, 1.0, out=return_batch)
-    np.divide(curves, return_batch, out=curves)
-    drawdowns = 1.0 - np.min(curves, axis=1)
+    np.divide(curves, return_batch, out=return_batch)
+    drawdowns = 1.0 - np.min(return_batch, axis=1)
 
     return tuple(
         (
@@ -488,7 +518,7 @@ def _segment_summaries(
     total_values = sum(
         position_segments[entries[0]].size * len(entries) for entries in entries_by_group
     )
-    worker_count = min(4, max(1, total_values // 100_000))
+    worker_count = min(4, max(1, total_values // 200_000))
     target_values = (total_values + worker_count - 1) // worker_count
     chunks: list[list[int]] = []
     for entries in entries_by_group:
@@ -527,19 +557,33 @@ def _segment_summaries(
             ),
         )
     else:
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            futures = tuple(
-                executor.submit(
-                    _summarize_segment_task,
-                    task,
-                    position_segments,
-                    return_segments,
-                    periods_per_year,
-                    annualization_sqrt,
-                )
-                for task in tasks
+        error_state = np.geterr()
+        error_callback = np.geterrcall()
+
+        def summarize_worker(task: list[list[int]]) -> tuple[_IndexedSegmentSummary, ...]:
+            previous_callback = np.seterrcall(error_callback)
+            try:
+                with np.errstate(**error_state):
+                    return _summarize_segment_task(
+                        task,
+                        position_segments,
+                        return_segments,
+                        periods_per_year,
+                        annualization_sqrt,
+                    )
+            finally:
+                np.seterrcall(previous_callback)
+
+        with ThreadPoolExecutor(max_workers=worker_count - 1) as executor:
+            futures = tuple(executor.submit(summarize_worker, task) for task in tasks[:-1])
+            caller_result = _summarize_segment_task(
+                tasks[-1],
+                position_segments,
+                return_segments,
+                periods_per_year,
+                annualization_sqrt,
             )
-            grouped_results = tuple(future.result() for future in futures)
+            grouped_results = tuple(future.result() for future in futures) + (caller_result,)
     for group in grouped_results:
         for index, summary in group:
             summaries[index] = summary

@@ -67,6 +67,30 @@ def test_causal_momentum_rule_passes_and_returns_full_positions() -> None:
     assert set(np.unique(positions)).issubset({-1.0, 0.0, 1.0})
 
 
+def test_momentum_subclass_positions_override_is_respected() -> None:
+    class InvertedMomentum(MomentumRule):
+        def positions(self, prices: npt.ArrayLike) -> npt.NDArray[np.float64]:
+            return -super().positions(prices)
+
+    strategy = InvertedMomentum(lookback=20)
+    assert np.array_equal(assert_causal(strategy, PRICES), strategy.positions(PRICES))
+
+
+def test_unrelated_private_method_is_not_treated_as_a_strategy_hook() -> None:
+    class PrivateMethodCollision:
+        n_parameters = 0
+
+        def positions(self, prices: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+            return np.zeros(prices.size, dtype=np.float64)
+
+        def _positions_from_validated_prices(
+            self, prices: npt.NDArray[np.float64]
+        ) -> npt.NDArray[np.float64]:
+            raise AssertionError("unrelated private method must not be called")
+
+    assert np.all(assert_causal(PrivateMethodCollision(), PRICES) == 0.0)
+
+
 def test_flat_strategy_is_trivially_causal() -> None:
     class Flat:
         n_parameters = 0

@@ -18,6 +18,7 @@ reports a single performance number.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import cast
 
 import numpy as np
@@ -63,6 +64,46 @@ class LookaheadError(Exception):
         )
 
 
+def _coerce_position_shape(
+    raw: object,
+    expected_length: int,
+    *,
+    label: str,
+) -> npt.NDArray[np.float64]:
+    try:
+        array = np.asarray(cast(npt.ArrayLike, raw), dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"{label} must be a sequence of floats, got {type(raw).__name__}: {exc}"
+        ) from exc
+    if array.ndim != 1:
+        raise ValueError(f"{label} must be one-dimensional, got shape {array.shape}")
+    if array.size != expected_length:
+        raise ValueError(
+            f"{label} must return one position per bar: expected {expected_length}, got "
+            f"{array.size}"
+        )
+    return array
+
+
+def _validate_position_values(array: npt.NDArray[np.float64], *, label: str) -> None:
+    if not array.size:
+        return
+    minimum = float(np.min(array))
+    maximum = float(np.max(array))
+    if not np.isfinite(minimum) or not np.isfinite(maximum):
+        bad = int(np.argmax(~np.isfinite(array)))
+        raise ValueError(f"{label} must be finite; index {bad} is {array[bad]!r}")
+    if minimum < -1.0 - _POSITION_TOLERANCE or maximum > 1.0 + _POSITION_TOLERANCE:
+        magnitude = np.abs(array)
+        worst = int(np.argmax(magnitude))
+        raise ValueError(
+            f"{label} must lie in [-1, 1]; index {worst} is {array[worst]!r}. The protocol "
+            "expresses a position as a signed fraction of capital, so leverage must be "
+            "applied outside the harness."
+        )
+
+
 def coerce_positions(
     raw: object,
     expected_length: int,
@@ -84,33 +125,23 @@ def coerce_positions(
         ValueError: If the result is not one-dimensional, has the wrong length, is
             non-finite, or leaves the ``[-1, 1]`` range required by the protocol.
     """
-    try:
-        array = np.asarray(cast(npt.ArrayLike, raw), dtype=np.float64)
-    except (TypeError, ValueError) as exc:
-        raise TypeError(
-            f"{label} must be a sequence of floats, got {type(raw).__name__}: {exc}"
-        ) from exc
-    if array.ndim != 1:
-        raise ValueError(f"{label} must be one-dimensional, got shape {array.shape}")
-    if array.size != expected_length:
-        raise ValueError(
-            f"{label} must return one position per bar: expected {expected_length}, got "
-            f"{array.size}"
-        )
-    if array.size:
-        magnitude = np.abs(array)
-        maximum_magnitude = float(np.max(magnitude))
-        if not np.isfinite(maximum_magnitude):
-            bad = int(np.argmax(~np.isfinite(array)))
-            raise ValueError(f"{label} must be finite; index {bad} is {array[bad]!r}")
-        if maximum_magnitude > 1.0 + _POSITION_TOLERANCE:
-            worst = int(np.argmax(magnitude))
-            raise ValueError(
-                f"{label} must lie in [-1, 1]; index {worst} is {array[worst]!r}. The protocol "
-                "expresses a position as a signed fraction of capital, so leverage must be "
-                "applied outside the harness."
-            )
+    array = _coerce_position_shape(raw, expected_length, label=label)
+    _validate_position_values(array, label=label)
     return array
+
+
+def _position_method_for_validated_prices(
+    strategy: Strategy,
+) -> Callable[[npt.NDArray[np.float64]], object] | None:
+    from .synthetic import MomentumRule
+
+    if type(strategy) is MomentumRule:
+        method = MomentumRule._positions_from_validated_prices.__get__(
+            strategy,
+            type(strategy),
+        )
+        return cast(Callable[[npt.NDArray[np.float64]], object], method)
+    return None
 
 
 def assert_causal(
@@ -174,7 +205,8 @@ def assert_causal(
         raise ValueError(f"tolerance must be finite and non-negative, got {tolerance!r}")
 
     n = price_array.size
-    full = coerce_positions(strategy.positions(price_array), n, label="positions(full series)")
+    position_method = _position_method_for_validated_prices(strategy) or strategy.positions
+    full = coerce_positions(position_method(price_array), n, label="positions(full series)")
 
     seen: set[int] = set()
     for fraction in prefix_fractions:
@@ -187,13 +219,15 @@ def assert_causal(
         if prefix_length in seen:
             continue
         seen.add(prefix_length)
-        truncated = coerce_positions(
-            strategy.positions(price_array[:prefix_length].copy()),
+        label = f"positions(first {prefix_length} bars)"
+        truncated = _coerce_position_shape(
+            position_method(price_array[:prefix_length].copy()),
             prefix_length,
-            label=f"positions(first {prefix_length} bars)",
+            label=label,
         )
         if np.array_equal(truncated, full[:prefix_length]):
             continue
+        _validate_position_values(truncated, label=label)
         difference = np.abs(truncated - full[:prefix_length])
         if np.any(difference > limit):
             index = int(np.argmax(difference > limit))
@@ -216,22 +250,24 @@ def _default_prefix_lengths(n: int) -> tuple[int, ...]:
 
 
 def _assert_causal_at_prefixes(
-    strategy: Strategy,
+    position_method: Callable[[npt.NDArray[np.float64]], object],
     price_array: npt.NDArray[np.float64],
     prefix_lengths: tuple[int, ...],
     tolerance: float = 1e-10,
 ) -> npt.NDArray[np.float64]:
-    """Run the causality comparison when prices and prefix lengths are already validated."""
+    """Run the causality comparison when inputs and the strategy method are pre-resolved."""
     n = price_array.size
-    full = coerce_positions(strategy.positions(price_array), n, label="positions(full series)")
+    full = coerce_positions(position_method(price_array), n, label="positions(full series)")
     for prefix_length in prefix_lengths:
-        truncated = coerce_positions(
-            strategy.positions(price_array[:prefix_length].copy()),
+        label = f"positions(first {prefix_length} bars)"
+        truncated = _coerce_position_shape(
+            position_method(price_array[:prefix_length].copy()),
             prefix_length,
-            label=f"positions(first {prefix_length} bars)",
+            label=label,
         )
         if np.array_equal(truncated, full[:prefix_length]):
             continue
+        _validate_position_values(truncated, label=label)
         difference = truncated - full[:prefix_length]
         np.abs(difference, out=difference)
         if np.max(difference) > tolerance:

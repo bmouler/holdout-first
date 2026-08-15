@@ -61,7 +61,7 @@ def test_report_has_one_cell_per_instrument_and_period(
 
 
 def test_large_panel_threaded_metrics_match_public_scalar_metrics_exactly() -> None:
-    panel = make_panel(83, n_instruments=12, n_bars=18_000)
+    panel = make_panel(83, n_instruments=24, n_bars=18_000)
     strategy = MomentumRule(lookback=20)
     report = evaluate(strategy, panel, n_periods=3, gap=20)
 
@@ -84,7 +84,7 @@ def test_large_panel_threaded_metrics_match_public_scalar_metrics_exactly() -> N
         "turnover": m.turnover(segment_positions),
     }
     assert cell.test.to_dict() == expected
-    assert len(report.cells) == 36
+    assert len(report.cells) == 72
 
 
 def test_held_out_segments_are_larger_than_training_segments(
@@ -291,6 +291,39 @@ def test_evaluate_preserves_invalid_measured_return_failure() -> None:
         match=r"returns must exceed -1\.0",
     ):
         evaluate(AlwaysShort(), {"doubling": prices}, n_periods=1)
+
+
+def test_returns_during_embargo_bars_are_discarded() -> None:
+    class AlwaysShort:
+        n_parameters = 0
+
+        def positions(self, prices: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+            return np.full(prices.size, -1.0)
+
+    prices = np.ones(30, dtype=np.float64)
+    prices[9:] = 2.0
+    report = evaluate(AlwaysShort(), {"gap_jump": prices}, n_periods=1, gap=2)
+    assert len(report.cells) == 1
+
+
+def test_evaluate_ignores_unrelated_private_strategy_method() -> None:
+    class PrivateMethodCollision:
+        n_parameters = 0
+
+        def positions(self, prices: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+            return np.zeros(prices.size, dtype=np.float64)
+
+        def _positions_from_validated_prices(
+            self, prices: npt.NDArray[np.float64]
+        ) -> npt.NDArray[np.float64]:
+            raise AssertionError("unrelated private method must not be called")
+
+    report = evaluate(
+        PrivateMethodCollision(),
+        {"flat": np.full(30, 100.0)},
+        n_periods=1,
+    )
+    assert len(report.cells) == 1
 
 
 def test_panel_instrument_names_must_be_strings() -> None:

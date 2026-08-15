@@ -182,16 +182,17 @@ flowchart LR; P[price panel] --> S[small train slice]; S --> R[frozen rule]; R -
 
 ### End-to-end performance
 
-`PYTHONPATH=src python benchmarks/benchmark_evaluate.py --json --samples 15 --warmups 3`
+`PYTHONPATH=src python benchmarks/benchmark_evaluate.py --json --samples 101 --warmups 5`
 times the documented `evaluate(MomentumRule, panel).to_dict()` path across 24 instruments,
 20,000 bars, and three walk-forward periods. Panel generation and interpreter startup are
 excluded; validation, four causality runs per instrument, returns, metrics, survival rules, and
 all 72 materialized cells are included. Sufficiently large metric batches use at most four
 worker threads.
 
-On an Apple M3 Max with CPython 3.11.12 on 2026-08-15, the frozen baseline
-`0e6253c1e0df` measured **22.554 ms** median and this implementation **10.510 ms**, a
-**2.146x speedup** over 15 samples after three warmups. Both runs produced SHA-256
+On an Apple M3 Max with CPython 3.11.12 on 2026-08-15, three independent paired
+trials against frozen baseline `0e6253c1e0df` measured **22.133 / 6.987 ms
+(3.168x)**, **22.000 / 6.975 ms (3.154x)**, and **22.114 / 6.983 ms (3.167x)**
+baseline/current medians. Every timed run produced SHA-256
 `b97c08eeec26c31a91bae5d15f991fc52c364066e30ebce4c9d0b3fc4da1c379`. These are local
 in-process timings; rerun on the target machine, using `PYTHONPATH` to select the source
 worktree being measured.

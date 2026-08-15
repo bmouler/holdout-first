@@ -293,3 +293,16 @@ def test_strategy_returns_rejects_non_finite_prices() -> None:
 def test_strategy_returns_require_at_least_two_bars() -> None:
     with pytest.raises(ValueError, match="at least 2"):
         m.strategy_returns([1.0], [100.0])
+
+
+def test_threaded_summaries_preserve_numpy_error_mode_in_workers() -> None:
+    position_segments = (
+        np.zeros(300_000, dtype=np.float64),
+        np.zeros(100_001, dtype=np.float64),
+    )
+    return_segments = (
+        np.full(299_999, 1e300, dtype=np.float64),
+        np.zeros(100_000, dtype=np.float64),
+    )
+    with np.errstate(over="raise"), pytest.raises(FloatingPointError, match="overflow"):
+        m._segment_summaries(position_segments, return_segments, 252.0)

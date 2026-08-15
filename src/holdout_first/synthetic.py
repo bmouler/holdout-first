@@ -130,6 +130,19 @@ def _as_prices(prices: npt.ArrayLike, minimum: int) -> npt.NDArray[np.float64]:
     return array
 
 
+def _momentum_positions(prices: npt.NDArray[np.float64], lookback: int) -> npt.NDArray[np.float64]:
+    if prices.size <= lookback:
+        return np.zeros(prices.size, dtype=np.float64)
+    out = np.empty(prices.size, dtype=np.float64)
+    out[:lookback] = 0.0
+    momentum = out[lookback:]
+    # Positive finite prices preserve the sign of their ratio through subtraction while
+    # avoiding a division and the immediately following subtraction by one.
+    np.subtract(prices[lookback:], prices[:-lookback], out=momentum)
+    np.sign(momentum, out=momentum)
+    return out
+
+
 class MomentumRule:
     """Honest one-parameter momentum rule: hold the sign of the trailing ``lookback`` return.
 
@@ -160,6 +173,12 @@ class MomentumRule:
         self.lookback = lookback
         self.n_parameters = 1
 
+    def _positions_from_validated_prices(
+        self, prices: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
+        """Run the built-in rule without repeating the harness's price validation."""
+        return _momentum_positions(prices, self.lookback)
+
     def positions(self, prices: npt.ArrayLike) -> npt.NDArray[np.float64]:
         """Return the sign of the trailing momentum at every bar.
 
@@ -172,15 +191,7 @@ class MomentumRule:
         Raises:
             ValueError: If ``prices`` is not a valid one-dimensional positive series.
         """
-        array = _as_prices(prices, minimum=1)
-        out = np.zeros(array.size, dtype=np.float64)
-        if array.size <= self.lookback:
-            return out
-        momentum = out[self.lookback :]
-        np.divide(array[self.lookback :], array[: -self.lookback], out=momentum)
-        np.subtract(momentum, 1.0, out=momentum)
-        np.sign(momentum, out=momentum)
-        return out
+        return _momentum_positions(_as_prices(prices, minimum=1), self.lookback)
 
 
 def _lookup_features(prices: npt.NDArray[np.float64]) -> npt.NDArray[np.intp]:

@@ -41,6 +41,7 @@ from .causality import (
     LookaheadError,
     _assert_causal_at_prefixes,
     _default_prefix_lengths,
+    _position_method_for_validated_prices,
     coerce_positions,
 )
 from .protocol import Strategy
@@ -441,33 +442,30 @@ def evaluate(
             )
 
     prefix_lengths = _default_prefix_lengths(n_bars)
+    validated_position_method = _position_method_for_validated_prices(strategy)
     bounds = tuple(segment for split in splits for segment in (split.train_slice, split.test_slice))
-    measured_return_segments = np.full(n_bars - 1, -1, dtype=np.intp)
-    for segment_index, segment in enumerate(bounds):
-        measured_return_segments[segment.start : segment.stop - 1] = segment_index
 
     evaluated: list[tuple[str, npt.NDArray[np.float64], npt.NDArray[np.float64]]] = []
     causality_failures: list[str] = []
     for name, prices in prices_by_name.items():
+        position_method = validated_position_method or strategy.positions
         try:
-            positions = _assert_causal_at_prefixes(strategy, prices, prefix_lengths)
+            positions = _assert_causal_at_prefixes(position_method, prices, prefix_lengths)
         except LookaheadError as exc:
             causality_failures.append(f"{name} at bar {exc.index}")
             positions = coerce_positions(
                 strategy.positions(prices), prices.size, label=f"positions({name})"
             )
-        returns = m.strategy_returns(positions, prices, fees=cost)
-        invalid_returns = ~np.isfinite(returns)
-        np.logical_or(invalid_returns, returns <= -1.0, out=invalid_returns)
-        np.logical_and(
-            invalid_returns,
-            measured_return_segments >= 0,
-            out=invalid_returns,
-        )
-        if np.any(invalid_returns):
-            first_segment = int(np.min(measured_return_segments[invalid_returns]))
-            segment = bounds[first_segment]
-            m._as_returns(returns[segment.start : segment.stop - 1])
+        returns = m._strategy_returns_from_validated(positions, prices, cost)
+        minimum_return = float(np.min(returns))
+        maximum_return = float(np.max(returns))
+        if (
+            not math.isfinite(minimum_return)
+            or not math.isfinite(maximum_return)
+            or minimum_return <= -1.0
+        ):
+            for segment in bounds:
+                m._as_returns(returns[segment.start : segment.stop - 1])
         evaluated.append((name, positions, returns))
 
     position_segments = tuple(

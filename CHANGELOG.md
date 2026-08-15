@@ -2,9 +2,10 @@
 
 ## [Unreleased]
 
-- Reduced redundant panel and causality validation and shared metric work across aligned walk-forward segments without changing report output.
-- Preserved scalar annualized-return rounding across platforms while batching the remaining metric work.
-- Added a deterministic end-to-end `evaluate(...).to_dict()` benchmark with exact output checksums.
+- Reduced redundant panel, causality, strategy-return, and metric work without changing report output.
+- Reused metric scratch arrays and balanced large batches across caller-assisted worker tasks.
+- Preserved scalar annualized-return rounding across platforms while vectorizing the remaining metrics.
+- Added an exact-checksum end-to-end benchmark; three paired trials measured 3.154x–3.168x speedups.
 
 
 ## [1.0.0] - 2026-08-12
