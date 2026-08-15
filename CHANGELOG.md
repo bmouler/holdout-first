@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-15
+
 - Reduced redundant panel, causality, strategy-return, and metric work without changing report output.
 - Reused metric scratch arrays and balanced large batches across caller-assisted worker tasks.
 - Preserved scalar annualized-return rounding across platforms while vectorizing the remaining metrics.

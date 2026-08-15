@@ -1,6 +1,6 @@
 [project]
 name = "holdout-first"
-version = "1.0.0"
+version = "1.0.1"
 description = "Validation harness that fits on a small slice and demands survival on the large held-out remainder."
 readme = "README.md"
 requires-python = ">=3.11"
